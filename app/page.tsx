@@ -1,65 +1,71 @@
-import Image from "next/image";
+import Link from "next/link";
 
 export default function Home() {
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
+    <section className="mx-auto grid max-w-6xl gap-10 px-6 py-16 lg:grid-cols-[1.05fr_0.95fr] lg:px-8 lg:py-24">
+      <div className="flex flex-col justify-center">
+        <p className="mb-4 text-sm font-semibold uppercase tracking-wide text-emerald-700">
+          Procurement Contract Intelligence
+        </p>
+        <h1 className="max-w-3xl text-4xl font-semibold tracking-tight text-slate-950 sm:text-5xl">
+          Turn SOW contracts into clear, review-ready summaries.
+        </h1>
+        <p className="mt-6 max-w-2xl text-lg leading-8 text-slate-600">
+          Upload statements of work, review extracted contract fields, and
+          classify documents from a simple workspace. This MVP starts with the
+          core screens before adding extraction and AI.
+        </p>
+        <div className="mt-8 flex flex-col gap-3 sm:flex-row">
+          <Link
+            href="/upload"
+            className="inline-flex items-center justify-center rounded-md bg-slate-950 px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800"
           >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
+            Upload a contract
+          </Link>
+          <Link
+            href="/dashboard"
+            className="inline-flex items-center justify-center rounded-md border border-slate-300 bg-white px-5 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-100"
           >
-            Documentation
-          </a>
+            View dashboard
+          </Link>
         </div>
-      </main>
-    </div>
+      </div>
+
+      <div className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
+        <div className="flex items-center justify-between border-b border-slate-200 pb-4">
+          <div>
+            <p className="text-sm font-medium text-slate-500">MVP workflow</p>
+            <h2 className="text-xl font-semibold text-slate-950">
+              Contract intake
+            </h2>
+          </div>
+          <span className="rounded-md bg-emerald-50 px-3 py-1 text-sm font-medium text-emerald-700">
+            Step 1
+          </span>
+        </div>
+        <div className="mt-6 space-y-4">
+          {["Upload SOW", "Extract key fields", "Classify contract"].map(
+            (step, index) => (
+              <div
+                key={step}
+                className="flex items-center gap-4 rounded-md border border-slate-200 p-4"
+              >
+                <span className="flex h-8 w-8 items-center justify-center rounded-md bg-slate-100 text-sm font-semibold text-slate-700">
+                  {index + 1}
+                </span>
+                <div>
+                  <p className="font-medium text-slate-950">{step}</p>
+                  <p className="text-sm text-slate-500">
+                    {index === 0
+                      ? "Available now as a frontend screen."
+                      : "Coming in a later MVP step."}
+                  </p>
+                </div>
+              </div>
+            ),
+          )}
+        </div>
+      </div>
+    </section>
   );
 }

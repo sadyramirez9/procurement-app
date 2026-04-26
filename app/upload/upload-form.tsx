@@ -1,11 +1,20 @@
 "use client";
 
 import { ChangeEvent, DragEvent, useState } from "react";
+import { useRouter } from "next/navigation";
 
 const acceptedTypes = new Set([
   "application/pdf",
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 ]);
+
+type TemporaryDocument = {
+  id: string;
+  fileName: string;
+  fileType: "PDF" | "DOCX";
+  fileSize: number;
+  uploadTimestamp: string;
+};
 
 function formatFileSize(size: number) {
   if (size < 1024) {
@@ -21,8 +30,11 @@ function formatFileSize(size: number) {
   return `${(kb / 1024).toFixed(1)} MB`;
 }
 
-function getFileType(file: File) {
-  if (file.type === "application/pdf" || file.name.endsWith(".pdf")) {
+function getFileType(file: File): TemporaryDocument["fileType"] {
+  if (
+    file.type === "application/pdf" ||
+    file.name.toLowerCase().endsWith(".pdf")
+  ) {
     return "PDF";
   }
 
@@ -38,8 +50,11 @@ function isAcceptedFile(file: File) {
 }
 
 export default function UploadForm() {
+  const router = useRouter();
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [document, setDocument] = useState<TemporaryDocument | null>(null);
   const [isDragging, setIsDragging] = useState(false);
+  const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState("");
 
   function selectFile(file: File | undefined) {
@@ -49,11 +64,24 @@ export default function UploadForm() {
 
     if (!isAcceptedFile(file)) {
       setSelectedFile(null);
+      setDocument(null);
       setError("Please choose a PDF or DOCX file.");
       return;
     }
 
+    const temporaryDocument = {
+      id:
+        typeof crypto !== "undefined" && "randomUUID" in crypto
+          ? crypto.randomUUID()
+          : Math.random().toString(36).slice(2),
+      fileName: file.name,
+      fileType: getFileType(file),
+      fileSize: file.size,
+      uploadTimestamp: new Date().toISOString(),
+    };
+
     setSelectedFile(file);
+    setDocument(temporaryDocument);
     setError("");
   }
 
@@ -66,6 +94,22 @@ export default function UploadForm() {
     event.preventDefault();
     setIsDragging(false);
     selectFile(event.dataTransfer.files[0]);
+  }
+
+  function processDocument() {
+    if (!document) {
+      return;
+    }
+
+    setIsProcessing(true);
+    window.sessionStorage.setItem(
+      `procureiq-document-${document.id}`,
+      JSON.stringify(document),
+    );
+
+    window.setTimeout(() => {
+      router.push(`/documents/${document.id}`);
+    }, 2300);
   }
 
   return (
@@ -114,19 +158,19 @@ export default function UploadForm() {
             <div>
               <dt className="text-sm font-medium text-slate-500">File name</dt>
               <dd className="mt-1 break-words text-sm font-semibold text-slate-950">
-                {selectedFile.name}
+                {document?.fileName}
               </dd>
             </div>
             <div>
               <dt className="text-sm font-medium text-slate-500">File type</dt>
               <dd className="mt-1 text-sm font-semibold text-slate-950">
-                {getFileType(selectedFile)}
+                {document?.fileType}
               </dd>
             </div>
             <div>
               <dt className="text-sm font-medium text-slate-500">File size</dt>
               <dd className="mt-1 text-sm font-semibold text-slate-950">
-                {formatFileSize(selectedFile.size)}
+                {document ? formatFileSize(document.fileSize) : ""}
               </dd>
             </div>
             <div>
@@ -151,10 +195,14 @@ export default function UploadForm() {
       <div className="mt-6 flex justify-end">
         <button
           type="button"
-          disabled
-          className="rounded-md bg-slate-200 px-5 py-3 text-sm font-semibold text-slate-500"
+          disabled={!document || isProcessing}
+          onClick={processDocument}
+          className="inline-flex items-center gap-2 rounded-md bg-slate-950 px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-500 disabled:shadow-none"
         >
-          Extract fields - coming soon
+          {isProcessing ? (
+            <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
+          ) : null}
+          {isProcessing ? "Processing document..." : "Process Document"}
         </button>
       </div>
     </div>

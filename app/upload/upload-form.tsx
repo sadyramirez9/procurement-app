@@ -1,6 +1,6 @@
 "use client";
 
-import { ChangeEvent, DragEvent, useRef, useState } from "react";
+import { ChangeEvent, DragEvent, useState } from "react";
 
 const acceptedTypes = new Set([
   "application/pdf",
@@ -38,8 +38,8 @@ function isAcceptedFile(file: File) {
 }
 
 export default function UploadForm() {
-  const inputRef = useRef<HTMLInputElement>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
   const [error, setError] = useState("");
 
   function selectFile(file: File | undefined) {
@@ -59,22 +59,29 @@ export default function UploadForm() {
 
   function handleFileChange(event: ChangeEvent<HTMLInputElement>) {
     selectFile(event.target.files?.[0]);
+    event.target.value = "";
   }
 
   function handleDrop(event: DragEvent<HTMLLabelElement>) {
     event.preventDefault();
+    setIsDragging(false);
     selectFile(event.dataTransfer.files[0]);
   }
 
   return (
     <div className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
       <label
+        onDragEnter={() => setIsDragging(true)}
+        onDragLeave={() => setIsDragging(false)}
         onDragOver={(event) => event.preventDefault()}
         onDrop={handleDrop}
-        className="block cursor-pointer rounded-lg border border-dashed border-slate-300 bg-slate-50 p-10 text-center transition hover:border-emerald-400 hover:bg-emerald-50/40"
+        className={`block cursor-pointer rounded-lg border border-dashed p-10 text-center transition ${
+          isDragging
+            ? "border-emerald-500 bg-emerald-50"
+            : "border-slate-300 bg-slate-50 hover:border-emerald-400 hover:bg-emerald-50/40"
+        }`}
       >
         <input
-          ref={inputRef}
           type="file"
           accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
           onChange={handleFileChange}
@@ -130,7 +137,16 @@ export default function UploadForm() {
             </div>
           </dl>
         </div>
-      ) : null}
+      ) : (
+        <div className="mt-6 rounded-lg border border-slate-200 bg-slate-50 px-5 py-4">
+          <p className="text-sm font-medium text-slate-700">
+            No file selected
+          </p>
+          <p className="mt-1 text-sm text-slate-500">
+            Choose a PDF or DOCX contract to prepare it for extraction.
+          </p>
+        </div>
+      )}
 
       <div className="mt-6 flex justify-end">
         <button

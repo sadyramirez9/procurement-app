@@ -10,11 +10,9 @@ const acceptedTypes = new Set([
 ]);
 
 type DraftDocument = {
-  localId: string;
   fileName: string;
   fileType: "PDF" | "DOCX";
   fileSize: number;
-  uploadTimestamp: string;
 };
 
 function formatFileSize(size: number) {
@@ -50,6 +48,12 @@ function isAcceptedFile(file: File) {
   );
 }
 
+function createStoragePath(documentId: string, fileName: string) {
+  const safeFileName = fileName.replace(/[^a-zA-Z0-9._-]/g, "_");
+
+  return `documents/${documentId}/${safeFileName}`;
+}
+
 export default function UploadForm() {
   const router = useRouter();
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -71,14 +75,9 @@ export default function UploadForm() {
     }
 
     const draftDocument = {
-      localId:
-        typeof crypto !== "undefined" && "randomUUID" in crypto
-          ? crypto.randomUUID()
-          : Math.random().toString(36).slice(2),
       fileName: file.name,
       fileType: getFileType(file),
       fileSize: file.size,
-      uploadTimestamp: new Date().toISOString(),
     };
 
     setSelectedFile(file);
@@ -98,7 +97,7 @@ export default function UploadForm() {
   }
 
   async function processDocument() {
-    if (!document) {
+    if (!document || !selectedFile) {
       return;
     }
 
@@ -121,6 +120,38 @@ export default function UploadForm() {
       setError(
         insertError?.message ??
           "Something went wrong while saving the document metadata.",
+      );
+      return;
+    }
+
+    const storagePath = createStoragePath(data.id, document.fileName);
+    const { error: uploadError } = await supabase.storage
+      .from("documents")
+      .upload(storagePath, selectedFile, {
+        contentType: selectedFile.type,
+        upsert: false,
+      });
+
+    if (uploadError) {
+      setIsProcessing(false);
+      setError(
+        `Document metadata was saved, but the file upload failed: ${uploadError.message}`,
+      );
+      return;
+    }
+
+    const { error: updateError } = await supabase
+      .from("documents")
+      .update({
+        storage_path: storagePath,
+        status: "file_uploaded",
+      })
+      .eq("id", data.id);
+
+    if (updateError) {
+      setIsProcessing(false);
+      setError(
+        `The file uploaded, but the document row could not be updated: ${updateError.message}`,
       );
       return;
     }
@@ -218,7 +249,7 @@ export default function UploadForm() {
           {isProcessing ? (
             <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
           ) : null}
-          {isProcessing ? "Saving metadata..." : "Process Document"}
+          {isProcessing ? "Uploading file..." : "Process Document"}
         </button>
       </div>
     </div>

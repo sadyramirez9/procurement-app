@@ -9,6 +9,7 @@ type DocumentRow = {
   file_type: string;
   file_size: number;
   status: string;
+  storage_path: string | null;
   created_at: string;
 };
 
@@ -51,7 +52,9 @@ export default function DocumentDetail({ documentId }: DocumentDetailProps) {
 
       const { data, error: fetchError } = await supabase
         .from("documents")
-        .select("id, file_name, file_type, file_size, status, created_at")
+        .select(
+          "id, file_name, file_type, file_size, status, storage_path, created_at",
+        )
         .eq("id", documentId)
         .single();
 
@@ -147,6 +150,12 @@ export default function DocumentDetail({ documentId }: DocumentDetailProps) {
                 <dt className="font-medium text-slate-500">Status</dt>
                 <dd className="mt-1 capitalize text-slate-700">
                   {document.status}
+                </dd>
+              </div>
+              <div>
+                <dt className="font-medium text-slate-500">Storage path</dt>
+                <dd className="mt-1 break-words text-slate-700">
+                  {document.storage_path ?? "Not uploaded yet"}
                 </dd>
               </div>
               <div>

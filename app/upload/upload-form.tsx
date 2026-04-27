@@ -2,14 +2,15 @@
 
 import { ChangeEvent, DragEvent, useState } from "react";
 import { useRouter } from "next/navigation";
+import { supabase } from "@/lib/supabaseClient";
 
 const acceptedTypes = new Set([
   "application/pdf",
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 ]);
 
-type TemporaryDocument = {
-  id: string;
+type DraftDocument = {
+  localId: string;
   fileName: string;
   fileType: "PDF" | "DOCX";
   fileSize: number;
@@ -30,7 +31,7 @@ function formatFileSize(size: number) {
   return `${(kb / 1024).toFixed(1)} MB`;
 }
 
-function getFileType(file: File): TemporaryDocument["fileType"] {
+function getFileType(file: File): DraftDocument["fileType"] {
   if (
     file.type === "application/pdf" ||
     file.name.toLowerCase().endsWith(".pdf")
@@ -52,7 +53,7 @@ function isAcceptedFile(file: File) {
 export default function UploadForm() {
   const router = useRouter();
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [document, setDocument] = useState<TemporaryDocument | null>(null);
+  const [document, setDocument] = useState<DraftDocument | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState("");
@@ -69,8 +70,8 @@ export default function UploadForm() {
       return;
     }
 
-    const temporaryDocument = {
-      id:
+    const draftDocument = {
+      localId:
         typeof crypto !== "undefined" && "randomUUID" in crypto
           ? crypto.randomUUID()
           : Math.random().toString(36).slice(2),
@@ -81,7 +82,7 @@ export default function UploadForm() {
     };
 
     setSelectedFile(file);
-    setDocument(temporaryDocument);
+    setDocument(draftDocument);
     setError("");
   }
 
@@ -96,20 +97,35 @@ export default function UploadForm() {
     selectFile(event.dataTransfer.files[0]);
   }
 
-  function processDocument() {
+  async function processDocument() {
     if (!document) {
       return;
     }
 
     setIsProcessing(true);
-    window.sessionStorage.setItem(
-      `procureiq-document-${document.id}`,
-      JSON.stringify(document),
-    );
+    setError("");
 
-    window.setTimeout(() => {
-      router.push(`/documents/${document.id}`);
-    }, 2300);
+    const { data, error: insertError } = await supabase
+      .from("documents")
+      .insert({
+        file_name: document.fileName,
+        file_type: document.fileType,
+        file_size: document.fileSize,
+        status: "uploaded",
+      })
+      .select("id")
+      .single();
+
+    if (insertError || !data?.id) {
+      setIsProcessing(false);
+      setError(
+        insertError?.message ??
+          "Something went wrong while saving the document metadata.",
+      );
+      return;
+    }
+
+    router.push(`/documents/${data.id}`);
   }
 
   return (
@@ -202,7 +218,7 @@ export default function UploadForm() {
           {isProcessing ? (
             <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
           ) : null}
-          {isProcessing ? "Processing document..." : "Process Document"}
+          {isProcessing ? "Saving metadata..." : "Process Document"}
         </button>
       </div>
     </div>

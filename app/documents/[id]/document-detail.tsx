@@ -1,13 +1,15 @@
 "use client";
 
-import { useMemo, useSyncExternalStore } from "react";
+import { useEffect, useState } from "react";
+import { supabase } from "@/lib/supabaseClient";
 
-type TemporaryDocument = {
+type DocumentRow = {
   id: string;
-  fileName: string;
-  fileType: "PDF" | "DOCX";
-  fileSize: number;
-  uploadTimestamp: string;
+  file_name: string;
+  file_type: string;
+  file_size: number;
+  status: string;
+  created_at: string;
 };
 
 type DocumentDetailProps = {
@@ -28,7 +30,7 @@ function formatFileSize(size: number) {
   return `${(kb / 1024).toFixed(1)} MB`;
 }
 
-function formatUploadTime(timestamp: string) {
+function formatDate(timestamp: string) {
   return new Intl.DateTimeFormat("en", {
     dateStyle: "medium",
     timeStyle: "short",
@@ -36,18 +38,43 @@ function formatUploadTime(timestamp: string) {
 }
 
 export default function DocumentDetail({ documentId }: DocumentDetailProps) {
-  const storedDocument = useSyncExternalStore(
-    () => () => {},
-    () => window.sessionStorage.getItem(`procureiq-document-${documentId}`),
-    () => null,
-  );
-  const document = useMemo<TemporaryDocument | null>(() => {
-    if (!storedDocument) {
-      return null;
+  const [document, setDocument] = useState<DocumentRow | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let isActive = true;
+
+    async function loadDocument() {
+      setIsLoading(true);
+      setError("");
+
+      const { data, error: fetchError } = await supabase
+        .from("documents")
+        .select("id, file_name, file_type, file_size, status, created_at")
+        .eq("id", documentId)
+        .single();
+
+      if (!isActive) {
+        return;
+      }
+
+      if (fetchError) {
+        setDocument(null);
+        setError(fetchError.message);
+      } else {
+        setDocument(data);
+      }
+
+      setIsLoading(false);
     }
 
-    return JSON.parse(storedDocument);
-  }, [storedDocument]);
+    loadDocument();
+
+    return () => {
+      isActive = false;
+    };
+  }, [documentId]);
 
   return (
     <>
@@ -56,15 +83,33 @@ export default function DocumentDetail({ documentId }: DocumentDetailProps) {
           Document detail
         </p>
         <h1 className="mt-2 text-3xl font-semibold tracking-tight text-slate-950">
-          {document?.fileName ?? "Contract review"}
+          {document?.file_name ?? "Contract review"}
         </h1>
         <p className="mt-3 max-w-2xl text-slate-600">
-          Review the uploaded document details now. Extraction and
-          classification will be connected in a later step.
+          Review saved document metadata now. File upload, extraction, and
+          classification will be connected in later steps.
         </p>
       </div>
 
-      {document ? (
+      {isLoading ? (
+        <div className="rounded-lg border border-slate-200 bg-white p-8 text-center shadow-sm">
+          <div className="mx-auto h-8 w-8 animate-spin rounded-full border-2 border-slate-200 border-t-slate-950" />
+          <p className="mt-4 text-sm font-medium text-slate-600">
+            Loading document...
+          </p>
+        </div>
+      ) : null}
+
+      {!isLoading && error ? (
+        <div className="rounded-lg border border-red-200 bg-red-50 p-6 shadow-sm">
+          <h2 className="text-lg font-semibold text-red-900">
+            Could not load document
+          </h2>
+          <p className="mt-2 text-sm leading-6 text-red-700">{error}</p>
+        </div>
+      ) : null}
+
+      {!isLoading && document ? (
         <div className="grid gap-6 lg:grid-cols-[0.9fr_1.1fr]">
           <div className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
             <div className="flex items-start justify-between gap-4">
@@ -73,34 +118,41 @@ export default function DocumentDetail({ documentId }: DocumentDetailProps) {
                   Document summary
                 </h2>
                 <p className="mt-1 text-sm text-slate-500">
-                  Temporary frontend upload record
+                  Metadata saved in Supabase
                 </p>
               </div>
-              <span className="rounded-md bg-emerald-50 px-3 py-1 text-sm font-medium text-emerald-700">
-                Ready
+              <span className="rounded-md bg-emerald-50 px-3 py-1 text-sm font-medium capitalize text-emerald-700">
+                {document.status}
               </span>
             </div>
+
             <dl className="mt-6 space-y-4 text-sm">
               <div>
                 <dt className="font-medium text-slate-500">File name</dt>
                 <dd className="mt-1 break-words font-semibold text-slate-950">
-                  {document.fileName}
+                  {document.file_name}
                 </dd>
               </div>
               <div>
                 <dt className="font-medium text-slate-500">File type</dt>
-                <dd className="mt-1 text-slate-700">{document.fileType}</dd>
+                <dd className="mt-1 text-slate-700">{document.file_type}</dd>
               </div>
               <div>
                 <dt className="font-medium text-slate-500">File size</dt>
                 <dd className="mt-1 text-slate-700">
-                  {formatFileSize(document.fileSize)}
+                  {formatFileSize(document.file_size)}
                 </dd>
               </div>
               <div>
-                <dt className="font-medium text-slate-500">Upload timestamp</dt>
+                <dt className="font-medium text-slate-500">Status</dt>
+                <dd className="mt-1 capitalize text-slate-700">
+                  {document.status}
+                </dd>
+              </div>
+              <div>
+                <dt className="font-medium text-slate-500">Created at</dt>
                 <dd className="mt-1 text-slate-700">
-                  {formatUploadTime(document.uploadTimestamp)}
+                  {formatDate(document.created_at)}
                 </dd>
               </div>
             </dl>
@@ -128,17 +180,7 @@ export default function DocumentDetail({ documentId }: DocumentDetailProps) {
             </section>
           </div>
         </div>
-      ) : (
-        <div className="rounded-lg border border-slate-200 bg-white p-8 text-center shadow-sm">
-          <h2 className="text-lg font-semibold text-slate-950">
-            No temporary document found
-          </h2>
-          <p className="mx-auto mt-3 max-w-md text-sm leading-6 text-slate-500">
-            Upload and process a PDF or DOCX file first to populate this
-            frontend-only detail page.
-          </p>
-        </div>
-      )}
+      ) : null}
     </>
   );
 }

@@ -11,4 +11,10 @@ if (!supabaseAnonKey) {
   throw new Error("Missing NEXT_PUBLIC_SUPABASE_ANON_KEY environment variable.");
 }
 
+if (!supabaseUrl.startsWith("http://") && !supabaseUrl.startsWith("https://")) {
+  throw new Error(
+    "NEXT_PUBLIC_SUPABASE_URL must be a valid http or https URL.",
+  );
+}
+
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);

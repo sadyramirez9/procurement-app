@@ -32,6 +32,12 @@ type DashboardDocument = DocumentRow & {
   reviewed_by_user: boolean;
 };
 
+type SpendInsight = {
+  name: string;
+  value: number;
+  count: number;
+};
+
 type SortKey = "created_at" | "contract_value";
 type StatusFilter = "all" | "uploaded" | "text_extracted" | "classified";
 type ReviewFilter = "all" | "reviewed" | "not_reviewed";
@@ -64,6 +70,14 @@ function formatCurrency(value: number | string | null) {
   }).format(numericValue);
 }
 
+function formatCurrencyAmount(value: number) {
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: 0,
+  }).format(value);
+}
+
 function formatDate(timestamp: string) {
   return new Intl.DateTimeFormat("en", {
     dateStyle: "medium",
@@ -72,6 +86,14 @@ function formatDate(timestamp: string) {
 
 function formatStatus(status: string) {
   return status.replaceAll("_", " ");
+}
+
+function getBarWidth(value: number, maxValue: number) {
+  if (value <= 0 || maxValue <= 0) {
+    return 0;
+  }
+
+  return Math.max(4, (value / maxValue) * 100);
 }
 
 export default function DashboardPage() {
@@ -258,6 +280,60 @@ export default function DashboardPage() {
       });
   }, [documents, reviewFilter, sortKey, statusFilter]);
 
+  const dashboardInsights = useMemo(() => {
+    const vendorNames = new Set<string>();
+    const spendByCategory = new Map<string, SpendInsight>();
+    const spendByVendor = new Map<string, SpendInsight>();
+
+    let totalContractValue = 0;
+
+    documents.forEach((document) => {
+      const contractValue = getNumericContractValue(document.contract_value);
+      const categoryName = document.category_level_1?.trim() || "Unclassified";
+      const vendorName = document.vendor_name?.trim() || "Unknown vendor";
+
+      totalContractValue += contractValue;
+
+      if (document.vendor_name?.trim()) {
+        vendorNames.add(document.vendor_name.trim());
+      }
+
+      const categoryInsight = spendByCategory.get(categoryName) ?? {
+        name: categoryName,
+        value: 0,
+        count: 0,
+      };
+      categoryInsight.value += contractValue;
+      categoryInsight.count += 1;
+      spendByCategory.set(categoryName, categoryInsight);
+
+      const vendorInsight = spendByVendor.get(vendorName) ?? {
+        name: vendorName,
+        value: 0,
+        count: 0,
+      };
+      vendorInsight.value += contractValue;
+      vendorInsight.count += 1;
+      spendByVendor.set(vendorName, vendorInsight);
+    });
+
+    return {
+      totalContractValue,
+      vendorCount: vendorNames.size,
+      needsReviewCount: documents.filter((document) => !document.reviewed_by_user)
+        .length,
+      spendByCategory: Array.from(spendByCategory.values()).sort(
+        (firstInsight, secondInsight) => secondInsight.value - firstInsight.value,
+      ),
+      topVendors: Array.from(spendByVendor.values())
+        .sort(
+          (firstInsight, secondInsight) =>
+            secondInsight.value - firstInsight.value,
+        )
+        .slice(0, 5),
+    };
+  }, [documents]);
+
   return (
     <section className="mx-auto max-w-6xl px-6 py-12 lg:px-8">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
@@ -281,18 +357,15 @@ export default function DashboardPage() {
         </Link>
       </div>
 
-      <div className="mt-8 grid gap-4 sm:grid-cols-3">
+      <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {[
           ["Total documents", documents.length],
           [
-            "Classified",
-            documents.filter((document) => document.status === "classified")
-              .length,
+            "Total contract value",
+            formatCurrencyAmount(dashboardInsights.totalContractValue),
           ],
-          [
-            "Human reviewed",
-            documents.filter((document) => document.reviewed_by_user).length,
-          ],
+          ["Vendors", dashboardInsights.vendorCount],
+          ["Needs review", dashboardInsights.needsReviewCount],
         ].map(([label, value]) => (
           <div
             key={label}
@@ -304,6 +377,109 @@ export default function DashboardPage() {
             </p>
           </div>
         ))}
+      </div>
+
+      <div className="mt-6 grid gap-6 lg:grid-cols-2">
+        <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+          <div>
+            <h2 className="font-semibold text-slate-950">Spend by category</h2>
+            <p className="mt-1 text-sm text-slate-500">
+              Where contract value is concentrated across procurement areas.
+            </p>
+          </div>
+
+          <div className="mt-5 space-y-4">
+            {dashboardInsights.spendByCategory.length === 0 ? (
+              <p className="rounded-md bg-slate-50 px-4 py-3 text-sm text-slate-500">
+                No category spend yet.
+              </p>
+            ) : null}
+
+            {dashboardInsights.spendByCategory.map((category) => {
+              const maxCategoryValue =
+                dashboardInsights.spendByCategory[0]?.value ?? 0;
+              const barWidth = getBarWidth(category.value, maxCategoryValue);
+
+              return (
+                <div key={category.name}>
+                  <div className="flex items-center justify-between gap-4 text-sm">
+                    <div>
+                      <p className="font-medium text-slate-950">
+                        {category.name}
+                      </p>
+                      <p className="text-xs text-slate-500">
+                        {category.count}{" "}
+                        {category.count === 1 ? "document" : "documents"}
+                      </p>
+                    </div>
+                    <p className="font-semibold text-slate-700">
+                      {formatCurrencyAmount(category.value)}
+                    </p>
+                  </div>
+                  <div className="mt-2 h-2 rounded-full bg-slate-100">
+                    <div
+                      className="h-2 rounded-full bg-emerald-600"
+                      style={{ width: `${barWidth}%` }}
+                    />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+          <div>
+            <h2 className="font-semibold text-slate-950">Top vendors</h2>
+            <p className="mt-1 text-sm text-slate-500">
+              Highest vendor totals based on extracted contract value.
+            </p>
+          </div>
+
+          <div className="mt-5 space-y-4">
+            {dashboardInsights.topVendors.length === 0 ? (
+              <p className="rounded-md bg-slate-50 px-4 py-3 text-sm text-slate-500">
+                No vendor spend yet.
+              </p>
+            ) : null}
+
+            {dashboardInsights.topVendors.map((vendor, index) => {
+              const maxVendorValue =
+                dashboardInsights.topVendors[0]?.value ?? 0;
+              const barWidth = getBarWidth(vendor.value, maxVendorValue);
+
+              return (
+                <div key={vendor.name}>
+                  <div className="flex items-center justify-between gap-4 text-sm">
+                    <div className="flex items-center gap-3">
+                      <span className="flex h-7 w-7 items-center justify-center rounded-md bg-slate-100 text-xs font-semibold text-slate-600">
+                        {index + 1}
+                      </span>
+                      <div>
+                        <p className="font-medium text-slate-950">
+                          {vendor.name}
+                        </p>
+                        <p className="text-xs text-slate-500">
+                          {vendor.count}{" "}
+                          {vendor.count === 1 ? "document" : "documents"}
+                        </p>
+                      </div>
+                    </div>
+                    <p className="font-semibold text-slate-700">
+                      {formatCurrencyAmount(vendor.value)}
+                    </p>
+                  </div>
+                  <div className="mt-2 h-2 rounded-full bg-slate-100">
+                    <div
+                      className="h-2 rounded-full bg-sky-600"
+                      style={{ width: `${barWidth}%` }}
+                    />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
       </div>
 
       <div className="mt-8 rounded-lg border border-slate-200 bg-white shadow-sm">

@@ -22,7 +22,6 @@ const navigation = [
   { name: "Home", href: "/" },
   { name: "Upload", href: "/upload" },
   { name: "Dashboard", href: "/dashboard" },
-  { name: "Document", href: "/documents/sample-sow" },
 ];
 
 export default function RootLayout({

@@ -9,6 +9,7 @@ type DocumentRow = {
   id: string;
   file_name: string;
   status: string;
+  storage_path: string | null;
   created_at: string;
 };
 
@@ -78,6 +79,10 @@ export default function DashboardPage() {
   const [documents, setDocuments] = useState<DashboardDocument[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");
+  const [deleteError, setDeleteError] = useState("");
+  const [deletingDocumentId, setDeletingDocumentId] = useState<string | null>(
+    null,
+  );
   const [sortKey, setSortKey] = useState<SortKey>("created_at");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [reviewFilter, setReviewFilter] = useState<ReviewFilter>("all");
@@ -91,7 +96,7 @@ export default function DashboardPage() {
 
       const { data: documentRows, error: documentsError } = await supabase
         .from("documents")
-        .select("id, file_name, status, created_at")
+        .select("id, file_name, status, storage_path, created_at")
         .order("created_at", { ascending: false });
 
       if (documentsError) {
@@ -176,6 +181,53 @@ export default function DashboardPage() {
       isActive = false;
     };
   }, []);
+
+  async function deleteDocument(document: DashboardDocument) {
+    const isConfirmed = window.confirm(
+      "Are you sure you want to delete this document? This will also remove the uploaded file.",
+    );
+
+    if (!isConfirmed) {
+      return;
+    }
+
+    setDeletingDocumentId(document.id);
+    setDeleteError("");
+
+    if (document.storage_path) {
+      const { error: storageError } = await supabase.storage
+        .from("documents")
+        .remove([document.storage_path]);
+
+      if (storageError) {
+        setDeleteError(
+          `Could not delete uploaded file: ${storageError.message}`,
+        );
+        setDeletingDocumentId(null);
+        return;
+      }
+    }
+
+    const { error: documentDeleteError } = await supabase
+      .from("documents")
+      .delete()
+      .eq("id", document.id);
+
+    if (documentDeleteError) {
+      setDeleteError(
+        `Could not delete document record: ${documentDeleteError.message}`,
+      );
+      setDeletingDocumentId(null);
+      return;
+    }
+
+    setDocuments((currentDocuments) =>
+      currentDocuments.filter(
+        (currentDocument) => currentDocument.id !== document.id,
+      ),
+    );
+    setDeletingDocumentId(null);
+  }
 
   const filteredDocuments = useMemo(() => {
     return documents
@@ -323,6 +375,12 @@ export default function DashboardPage() {
           </div>
         ) : null}
 
+        {!isLoading && deleteError ? (
+          <div className="m-5 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700">
+            {deleteError}
+          </div>
+        ) : null}
+
         {!isLoading && !error && filteredDocuments.length === 0 ? (
           <div className="p-8 text-center">
             <h3 className="font-semibold text-slate-950">No documents found</h3>
@@ -344,6 +402,7 @@ export default function DashboardPage() {
                   <th className="px-5 py-3">Status</th>
                   <th className="px-5 py-3">Reviewed</th>
                   <th className="px-5 py-3">Created</th>
+                  <th className="px-5 py-3 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200 bg-white">
@@ -383,6 +442,21 @@ export default function DashboardPage() {
                     </td>
                     <td className="px-5 py-4 text-slate-600">
                       {formatDate(document.created_at)}
+                    </td>
+                    <td className="px-5 py-4 text-right">
+                      <button
+                        type="button"
+                        disabled={deletingDocumentId === document.id}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          deleteDocument(document);
+                        }}
+                        className="inline-flex items-center justify-center rounded-md border border-red-200 px-3 py-1.5 text-xs font-semibold text-red-700 transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        {deletingDocumentId === document.id
+                          ? "Deleting..."
+                          : "Delete"}
+                      </button>
                     </td>
                   </tr>
                 ))}

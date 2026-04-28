@@ -41,7 +41,10 @@ function formatDate(timestamp: string) {
 export default function DocumentDetail({ documentId }: DocumentDetailProps) {
   const [document, setDocument] = useState<DocumentRow | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isExtracting, setIsExtracting] = useState(false);
   const [error, setError] = useState("");
+  const [extractError, setExtractError] = useState("");
+  const [extractSuccess, setExtractSuccess] = useState("");
 
   useEffect(() => {
     let isActive = true;
@@ -78,6 +81,41 @@ export default function DocumentDetail({ documentId }: DocumentDetailProps) {
       isActive = false;
     };
   }, [documentId]);
+
+  async function extractText() {
+    setIsExtracting(true);
+    setExtractError("");
+    setExtractSuccess("");
+
+    const response = await fetch("/api/extract-text", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ document_id: documentId }),
+    });
+    const result = (await response.json()) as {
+      success: boolean;
+      text_length?: number;
+      error?: string;
+    };
+
+    if (!response.ok || !result.success) {
+      setIsExtracting(false);
+      setExtractError(result.error ?? "Text extraction failed.");
+      return;
+    }
+
+    setDocument((currentDocument) =>
+      currentDocument
+        ? { ...currentDocument, status: "text_extracted" }
+        : currentDocument,
+    );
+    setExtractSuccess(
+      `Text extracted successfully (${result.text_length ?? 0} characters).`,
+    );
+    setIsExtracting(false);
+  }
 
   return (
     <>
@@ -168,13 +206,65 @@ export default function DocumentDetail({ documentId }: DocumentDetailProps) {
           </div>
 
           <div className="space-y-6">
+            <section className="rounded-lg border border-amber-200 bg-amber-50 p-6 shadow-sm">
+              <h2 className="text-sm font-semibold uppercase tracking-wide text-amber-900">
+                Temporary debug
+              </h2>
+              <p className="mt-3 text-sm font-medium text-amber-900">
+                Stored storage_path
+              </p>
+              <p className="mt-2 break-words rounded-md bg-white px-3 py-2 font-mono text-sm text-amber-950">
+                {document.storage_path ?? "null"}
+              </p>
+            </section>
+
+            <section className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                  <h2 className="text-lg font-semibold text-slate-950">
+                    Extracted Fields (coming soon)
+                  </h2>
+                  <p className="mt-3 text-sm leading-6 text-slate-500">
+                    For now, this step extracts raw PDF text and saves it to the
+                    document row. Structured fields will come later.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={extractText}
+                  disabled={document.file_type !== "PDF" || isExtracting}
+                  className="inline-flex items-center justify-center gap-2 rounded-md bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-500 disabled:shadow-none"
+                >
+                  {isExtracting ? (
+                    <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
+                  ) : null}
+                  {isExtracting ? "Extracting..." : "Extract Text"}
+                </button>
+              </div>
+              {document.file_type !== "PDF" ? (
+                <p className="mt-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-800">
+                  Text extraction supports PDF files only for now.
+                </p>
+              ) : null}
+              {extractError ? (
+                <p className="mt-4 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700">
+                  {extractError}
+                </p>
+              ) : null}
+              {extractSuccess ? (
+                <p className="mt-4 rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-700">
+                  {extractSuccess}
+                </p>
+              ) : null}
+            </section>
+
             <section className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
               <h2 className="text-lg font-semibold text-slate-950">
-                Extracted Fields (coming soon)
+                Raw Text Preview (coming soon)
               </h2>
               <p className="mt-3 text-sm leading-6 text-slate-500">
-                Key contract fields like vendor, dates, payment terms, and total
-                value will appear here after extraction is added.
+                The extracted text is saved to Supabase now, but a preview UI
+                will be added in a later step.
               </p>
             </section>
 

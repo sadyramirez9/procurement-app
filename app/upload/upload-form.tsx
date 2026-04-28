@@ -49,9 +49,7 @@ function isAcceptedFile(file: File) {
 }
 
 function createStoragePath(documentId: string, fileName: string) {
-  const safeFileName = fileName.replace(/[^a-zA-Z0-9._-]/g, "_");
-
-  return `documents/${documentId}/${safeFileName}`;
+  return `${documentId}/${fileName}`;
 }
 
 export default function UploadForm() {

@@ -13,6 +13,23 @@ type DocumentRow = {
   created_at: string;
 };
 
+type ExtractedFieldsRow = {
+  id?: string;
+  document_id: string;
+  vendor_name: string | null;
+  services_description: string | null;
+  deliverables: string[] | null;
+  pricing_model: string | null;
+  contract_value: string | null;
+  currency: string | null;
+  start_date: string | null;
+  end_date: string | null;
+  locations: string[] | null;
+  payment_terms: string | null;
+  renewal_terms: string | null;
+  termination_terms: string | null;
+};
+
 type DocumentDetailProps = {
   documentId: string;
 };
@@ -38,13 +55,30 @@ function formatDate(timestamp: string) {
   }).format(new Date(timestamp));
 }
 
+function formatValue(value: string | null) {
+  return value ?? "Not found";
+}
+
+function formatList(value: string[] | null) {
+  if (!value || value.length === 0) {
+    return "Not found";
+  }
+
+  return value.join(", ");
+}
+
 export default function DocumentDetail({ documentId }: DocumentDetailProps) {
   const [document, setDocument] = useState<DocumentRow | null>(null);
+  const [extractedFields, setExtractedFields] =
+    useState<ExtractedFieldsRow | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isExtracting, setIsExtracting] = useState(false);
+  const [isExtractingFields, setIsExtractingFields] = useState(false);
   const [error, setError] = useState("");
   const [extractError, setExtractError] = useState("");
   const [extractSuccess, setExtractSuccess] = useState("");
+  const [fieldsError, setFieldsError] = useState("");
+  const [fieldsSuccess, setFieldsSuccess] = useState("");
 
   useEffect(() => {
     let isActive = true;
@@ -60,6 +94,15 @@ export default function DocumentDetail({ documentId }: DocumentDetailProps) {
         )
         .eq("id", documentId)
         .single();
+      const { data: fieldsData, error: fieldsFetchError } = await supabase
+        .from("extracted_fields")
+        .select(
+          "id, document_id, vendor_name, services_description, deliverables, pricing_model, contract_value, currency, start_date, end_date, locations, payment_terms, renewal_terms, termination_terms",
+        )
+        .eq("document_id", documentId)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
 
       if (!isActive) {
         return;
@@ -70,6 +113,12 @@ export default function DocumentDetail({ documentId }: DocumentDetailProps) {
         setError(fetchError.message);
       } else {
         setDocument(data);
+      }
+
+      if (fieldsFetchError) {
+        setFieldsError(fieldsFetchError.message);
+      } else {
+        setExtractedFields(fieldsData);
       }
 
       setIsLoading(false);
@@ -115,6 +164,40 @@ export default function DocumentDetail({ documentId }: DocumentDetailProps) {
       `Text extracted successfully (${result.text_length ?? 0} characters).`,
     );
     setIsExtracting(false);
+  }
+
+  async function extractFields() {
+    setIsExtractingFields(true);
+    setFieldsError("");
+    setFieldsSuccess("");
+
+    const response = await fetch("/api/extract-fields", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ document_id: documentId }),
+    });
+    const result = (await response.json()) as {
+      success: boolean;
+      fields?: ExtractedFieldsRow;
+      error?: string;
+    };
+
+    if (!response.ok || !result.success || !result.fields) {
+      setIsExtractingFields(false);
+      setFieldsError(result.error ?? "Field extraction failed.");
+      return;
+    }
+
+    setExtractedFields(result.fields);
+    setDocument((currentDocument) =>
+      currentDocument
+        ? { ...currentDocument, status: "fields_extracted" }
+        : currentDocument,
+    );
+    setFieldsSuccess("Fields extracted successfully.");
+    setIsExtractingFields(false);
   }
 
   return (
@@ -259,13 +342,78 @@ export default function DocumentDetail({ documentId }: DocumentDetailProps) {
             </section>
 
             <section className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
-              <h2 className="text-lg font-semibold text-slate-950">
-                Raw Text Preview (coming soon)
-              </h2>
-              <p className="mt-3 text-sm leading-6 text-slate-500">
-                The extracted text is saved to Supabase now, but a preview UI
-                will be added in a later step.
-              </p>
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                  <h2 className="text-lg font-semibold text-slate-950">
+                    Structured Procurement Fields
+                  </h2>
+                  <p className="mt-3 text-sm leading-6 text-slate-500">
+                    Extract vendor, services, dates, terms, and commercial
+                    details from the saved raw text.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={extractFields}
+                  disabled={isExtractingFields}
+                  className="inline-flex items-center justify-center gap-2 rounded-md bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-500 disabled:shadow-none"
+                >
+                  {isExtractingFields ? (
+                    <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
+                  ) : null}
+                  {isExtractingFields ? "Extracting fields..." : "Extract Fields"}
+                </button>
+              </div>
+              {fieldsError ? (
+                <p className="mt-4 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700">
+                  {fieldsError}
+                </p>
+              ) : null}
+              {fieldsSuccess ? (
+                <p className="mt-4 rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-700">
+                  {fieldsSuccess}
+                </p>
+              ) : null}
+              {extractedFields ? (
+                <dl className="mt-5 grid gap-3 sm:grid-cols-2">
+                  {[
+                    ["Vendor", formatValue(extractedFields.vendor_name)],
+                    [
+                      "Services",
+                      formatValue(extractedFields.services_description),
+                    ],
+                    ["Deliverables", formatList(extractedFields.deliverables)],
+                    ["Pricing model", formatValue(extractedFields.pricing_model)],
+                    ["Contract value", formatValue(extractedFields.contract_value)],
+                    ["Currency", formatValue(extractedFields.currency)],
+                    ["Start date", formatValue(extractedFields.start_date)],
+                    ["End date", formatValue(extractedFields.end_date)],
+                    ["Locations", formatList(extractedFields.locations)],
+                    ["Payment terms", formatValue(extractedFields.payment_terms)],
+                    ["Renewal terms", formatValue(extractedFields.renewal_terms)],
+                    [
+                      "Termination terms",
+                      formatValue(extractedFields.termination_terms),
+                    ],
+                  ].map(([label, value]) => (
+                    <div
+                      key={label}
+                      className="rounded-md border border-slate-200 bg-slate-50 p-4"
+                    >
+                      <dt className="text-sm font-medium text-slate-500">
+                        {label}
+                      </dt>
+                      <dd className="mt-2 text-sm leading-6 text-slate-800">
+                        {value}
+                      </dd>
+                    </div>
+                  ))}
+                </dl>
+              ) : (
+                <p className="mt-4 rounded-md border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+                  No structured fields extracted yet.
+                </p>
+              )}
             </section>
 
             <section className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm">

@@ -20,7 +20,7 @@ type ExtractedFieldsRow = {
   services_description: string | null;
   deliverables: string[] | null;
   pricing_model: string | null;
-  contract_value: string | null;
+  contract_value: string | number | null;
   currency: string | null;
   start_date: string | null;
   end_date: string | null;
@@ -40,6 +40,19 @@ type ClassificationRow = {
   rationale: string;
   alternative_categories: string[];
   needs_human_review: boolean;
+  reviewed_by_user?: boolean;
+};
+
+type ReviewForm = {
+  vendor_name: string;
+  services_description: string;
+  pricing_model: string;
+  contract_value: string;
+  currency: string;
+  category_level_1: string;
+  category_level_2: string;
+  confidence_score: string;
+  rationale: string;
 };
 
 type DocumentDetailProps = {
@@ -67,8 +80,8 @@ function formatDate(timestamp: string) {
   }).format(new Date(timestamp));
 }
 
-function formatValue(value: string | null) {
-  return value ?? "Not found";
+function formatValue(value: string | number | null) {
+  return value === null ? "Not found" : String(value);
 }
 
 function formatList(value: string[] | null) {
@@ -79,16 +92,73 @@ function formatList(value: string[] | null) {
   return value.join(", ");
 }
 
+function getInitialReviewForm(
+  fields: ExtractedFieldsRow | null,
+  classification: ClassificationRow | null,
+): ReviewForm {
+  return {
+    vendor_name: fields?.vendor_name ?? "",
+    services_description: fields?.services_description ?? "",
+    pricing_model: fields?.pricing_model ?? "",
+    contract_value:
+      fields?.contract_value === null || fields?.contract_value === undefined
+        ? ""
+        : String(fields.contract_value),
+    currency: fields?.currency ?? "",
+    category_level_1: classification?.category_level_1 ?? "",
+    category_level_2: classification?.category_level_2 ?? "",
+    confidence_score:
+      classification?.confidence_score === undefined
+        ? ""
+        : String(classification.confidence_score),
+    rationale: classification?.rationale ?? "",
+  };
+}
+
+function normalizeOptionalText(value: string) {
+  const trimmedValue = value.trim();
+
+  return trimmedValue.length > 0 ? trimmedValue : null;
+}
+
+function normalizeOptionalNumber(value: unknown): number | null {
+  if (value === null || value === undefined) {
+    return null;
+  }
+
+  if (typeof value === "number") {
+    return Number.isNaN(value) ? null : value;
+  }
+
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const trimmedValue = value.trim();
+
+  if (trimmedValue.length === 0) {
+    return null;
+  }
+
+  const numericValue = Number(trimmedValue.replace(/[^0-9.-]/g, ""));
+
+  return Number.isNaN(numericValue) ? null : numericValue;
+}
+
 export default function DocumentDetail({ documentId }: DocumentDetailProps) {
   const [document, setDocument] = useState<DocumentRow | null>(null);
   const [extractedFields, setExtractedFields] =
     useState<ExtractedFieldsRow | null>(null);
   const [classification, setClassification] =
     useState<ClassificationRow | null>(null);
+  const [reviewForm, setReviewForm] = useState<ReviewForm>(
+    getInitialReviewForm(null, null),
+  );
   const [isLoading, setIsLoading] = useState(true);
   const [isExtracting, setIsExtracting] = useState(false);
   const [isExtractingFields, setIsExtractingFields] = useState(false);
   const [isClassifying, setIsClassifying] = useState(false);
+  const [isSavingReview, setIsSavingReview] = useState(false);
   const [error, setError] = useState("");
   const [extractError, setExtractError] = useState("");
   const [extractSuccess, setExtractSuccess] = useState("");
@@ -96,6 +166,8 @@ export default function DocumentDetail({ documentId }: DocumentDetailProps) {
   const [fieldsSuccess, setFieldsSuccess] = useState("");
   const [classificationError, setClassificationError] = useState("");
   const [classificationSuccess, setClassificationSuccess] = useState("");
+  const [reviewError, setReviewError] = useState("");
+  const [reviewSuccess, setReviewSuccess] = useState("");
 
   useEffect(() => {
     let isActive = true;
@@ -124,7 +196,7 @@ export default function DocumentDetail({ documentId }: DocumentDetailProps) {
         await supabase
           .from("classifications")
           .select(
-            "id, document_id, category_level_1, category_level_2, category_level_3, confidence_score, rationale, alternative_categories, needs_human_review",
+            "id, document_id, category_level_1, category_level_2, category_level_3, confidence_score, rationale, alternative_categories, needs_human_review, reviewed_by_user",
           )
           .eq("document_id", documentId)
           .order("created_at", { ascending: false })
@@ -154,6 +226,7 @@ export default function DocumentDetail({ documentId }: DocumentDetailProps) {
         setClassification(classificationData);
       }
 
+      setReviewForm(getInitialReviewForm(fieldsData, classificationData));
       setIsLoading(false);
     }
 
@@ -224,6 +297,18 @@ export default function DocumentDetail({ documentId }: DocumentDetailProps) {
     }
 
     setExtractedFields(result.fields);
+    setReviewForm((currentForm) => ({
+      ...currentForm,
+      vendor_name: result.fields?.vendor_name ?? "",
+      services_description: result.fields?.services_description ?? "",
+      pricing_model: result.fields?.pricing_model ?? "",
+      contract_value:
+        result.fields?.contract_value === null ||
+        result.fields?.contract_value === undefined
+          ? ""
+          : String(result.fields.contract_value),
+      currency: result.fields?.currency ?? "",
+    }));
     setDocument((currentDocument) =>
       currentDocument
         ? { ...currentDocument, status: "fields_extracted" }
@@ -256,6 +341,13 @@ export default function DocumentDetail({ documentId }: DocumentDetailProps) {
     }
 
     setClassification(result);
+    setReviewForm((currentForm) => ({
+      ...currentForm,
+      category_level_1: result.category_level_1,
+      category_level_2: result.category_level_2,
+      confidence_score: String(result.confidence_score),
+      rationale: result.rationale,
+    }));
     setDocument((currentDocument) =>
       currentDocument
         ? { ...currentDocument, status: "classified" }
@@ -263,6 +355,90 @@ export default function DocumentDetail({ documentId }: DocumentDetailProps) {
     );
     setClassificationSuccess("Document classified successfully.");
     setIsClassifying(false);
+  }
+
+  async function saveReview() {
+    if (!extractedFields?.id || !classification?.id) {
+      setReviewError(
+        "Extracted fields and classification must exist before saving review.",
+      );
+      return;
+    }
+
+    setIsSavingReview(true);
+    setReviewError("");
+    setReviewSuccess("");
+
+    const confidenceScore = Number(reviewForm.confidence_score);
+    const safeConfidenceScore = Number.isNaN(confidenceScore)
+      ? classification.confidence_score
+      : Math.min(Math.max(confidenceScore, 0), 1);
+
+    const updatedFields = {
+      vendor_name: normalizeOptionalText(reviewForm.vendor_name),
+      services_description: normalizeOptionalText(
+        reviewForm.services_description,
+      ),
+      pricing_model: normalizeOptionalText(reviewForm.pricing_model),
+      contract_value: normalizeOptionalNumber(reviewForm.contract_value),
+      currency: normalizeOptionalText(reviewForm.currency),
+    };
+    const updatedClassification = {
+      category_level_1: reviewForm.category_level_1.trim(),
+      category_level_2: reviewForm.category_level_2.trim(),
+      confidence_score: safeConfidenceScore,
+      rationale: reviewForm.rationale.trim(),
+      reviewed_by_user: true,
+    };
+
+    const { error: fieldsUpdateError } = await supabase
+      .from("extracted_fields")
+      .update(updatedFields)
+      .eq("id", extractedFields.id);
+
+    if (fieldsUpdateError) {
+      setIsSavingReview(false);
+      setReviewError(fieldsUpdateError.message);
+      return;
+    }
+
+    const { error: classificationUpdateError } = await supabase
+      .from("classifications")
+      .update(updatedClassification)
+      .eq("id", classification.id);
+
+    if (classificationUpdateError) {
+      setIsSavingReview(false);
+      setReviewError(classificationUpdateError.message);
+      return;
+    }
+
+    const { error: documentUpdateError } = await supabase
+      .from("documents")
+      .update({ status: "classified" })
+      .eq("id", documentId);
+
+    if (documentUpdateError) {
+      setIsSavingReview(false);
+      setReviewError(documentUpdateError.message);
+      return;
+    }
+
+    setExtractedFields((currentFields) =>
+      currentFields ? { ...currentFields, ...updatedFields } : currentFields,
+    );
+    setClassification((currentClassification) =>
+      currentClassification
+        ? { ...currentClassification, ...updatedClassification }
+        : currentClassification,
+    );
+    setDocument((currentDocument) =>
+      currentDocument
+        ? { ...currentDocument, status: "classified" }
+        : currentDocument,
+    );
+    setReviewSuccess("Review saved.");
+    setIsSavingReview(false);
   }
 
   return (
@@ -409,9 +585,18 @@ export default function DocumentDetail({ documentId }: DocumentDetailProps) {
             <section className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
               <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                 <div>
-                  <h2 className="text-lg font-semibold text-slate-950">
-                    Structured Procurement Fields
-                  </h2>
+                  <div className="flex flex-wrap items-center gap-3">
+                    <h2 className="text-lg font-semibold text-slate-950">
+                      Structured Procurement Fields
+                    </h2>
+                    {classification ? (
+                      <span className="rounded-md bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-700">
+                        {classification.reviewed_by_user
+                          ? "Human reviewed"
+                          : "AI generated"}
+                      </span>
+                    ) : null}
+                  </div>
                   <p className="mt-3 text-sm leading-6 text-slate-500">
                     Extract vendor, services, dates, terms, and commercial
                     details from the saved raw text.
@@ -440,40 +625,80 @@ export default function DocumentDetail({ documentId }: DocumentDetailProps) {
                 </p>
               ) : null}
               {extractedFields ? (
-                <dl className="mt-5 grid gap-3 sm:grid-cols-2">
-                  {[
-                    ["Vendor", formatValue(extractedFields.vendor_name)],
-                    [
-                      "Services",
-                      formatValue(extractedFields.services_description),
-                    ],
-                    ["Deliverables", formatList(extractedFields.deliverables)],
-                    ["Pricing model", formatValue(extractedFields.pricing_model)],
-                    ["Contract value", formatValue(extractedFields.contract_value)],
-                    ["Currency", formatValue(extractedFields.currency)],
-                    ["Start date", formatValue(extractedFields.start_date)],
-                    ["End date", formatValue(extractedFields.end_date)],
-                    ["Locations", formatList(extractedFields.locations)],
-                    ["Payment terms", formatValue(extractedFields.payment_terms)],
-                    ["Renewal terms", formatValue(extractedFields.renewal_terms)],
-                    [
-                      "Termination terms",
-                      formatValue(extractedFields.termination_terms),
-                    ],
-                  ].map(([label, value]) => (
-                    <div
-                      key={label}
-                      className="rounded-md border border-slate-200 bg-slate-50 p-4"
-                    >
-                      <dt className="text-sm font-medium text-slate-500">
-                        {label}
-                      </dt>
-                      <dd className="mt-2 text-sm leading-6 text-slate-800">
-                        {value}
-                      </dd>
-                    </div>
-                  ))}
-                </dl>
+                <>
+                  <div className="mt-5 grid gap-4 sm:grid-cols-2">
+                    {[
+                      ["Vendor", "vendor_name"],
+                      ["Pricing model", "pricing_model"],
+                      ["Contract value", "contract_value"],
+                      ["Currency", "currency"],
+                    ].map(([label, key]) => (
+                      <label key={key} className="block">
+                        <span className="text-sm font-medium text-slate-500">
+                          {label}
+                        </span>
+                        <input
+                          value={reviewForm[key as keyof ReviewForm]}
+                          onChange={(event) =>
+                            setReviewForm((currentForm) => ({
+                              ...currentForm,
+                              [key]: event.target.value,
+                            }))
+                          }
+                          className="mt-2 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-950 shadow-sm outline-none transition focus:border-slate-500"
+                        />
+                      </label>
+                    ))}
+                  </div>
+                  <label className="mt-4 block">
+                    <span className="text-sm font-medium text-slate-500">
+                      Services description
+                    </span>
+                    <textarea
+                      value={reviewForm.services_description}
+                      onChange={(event) =>
+                        setReviewForm((currentForm) => ({
+                          ...currentForm,
+                          services_description: event.target.value,
+                        }))
+                      }
+                      rows={4}
+                      className="mt-2 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm leading-6 text-slate-950 shadow-sm outline-none transition focus:border-slate-500"
+                    />
+                  </label>
+                  <dl className="mt-5 grid gap-3 sm:grid-cols-2">
+                    {[
+                      ["Deliverables", formatList(extractedFields.deliverables)],
+                      ["Start date", formatValue(extractedFields.start_date)],
+                      ["End date", formatValue(extractedFields.end_date)],
+                      ["Locations", formatList(extractedFields.locations)],
+                      [
+                        "Payment terms",
+                        formatValue(extractedFields.payment_terms),
+                      ],
+                      [
+                        "Renewal terms",
+                        formatValue(extractedFields.renewal_terms),
+                      ],
+                      [
+                        "Termination terms",
+                        formatValue(extractedFields.termination_terms),
+                      ],
+                    ].map(([label, value]) => (
+                      <div
+                        key={label}
+                        className="rounded-md border border-slate-200 bg-slate-50 p-4"
+                      >
+                        <dt className="text-sm font-medium text-slate-500">
+                          {label}
+                        </dt>
+                        <dd className="mt-2 text-sm leading-6 text-slate-800">
+                          {value}
+                        </dd>
+                      </div>
+                    ))}
+                  </dl>
+                </>
               ) : (
                 <p className="mt-4 rounded-md border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
                   No structured fields extracted yet.
@@ -484,9 +709,18 @@ export default function DocumentDetail({ documentId }: DocumentDetailProps) {
             <section className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
               <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                 <div>
-                  <h2 className="text-lg font-semibold text-slate-950">
-                    Procurement Classification
-                  </h2>
+                  <div className="flex flex-wrap items-center gap-3">
+                    <h2 className="text-lg font-semibold text-slate-950">
+                      Procurement Classification
+                    </h2>
+                    {classification ? (
+                      <span className="rounded-md bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-700">
+                        {classification.reviewed_by_user
+                          ? "Human reviewed"
+                          : "AI generated"}
+                      </span>
+                    ) : null}
+                  </div>
                   <p className="mt-3 text-sm leading-6 text-slate-500">
                     Classify this document against the procurement taxonomy.
                   </p>
@@ -515,27 +749,28 @@ export default function DocumentDetail({ documentId }: DocumentDetailProps) {
               ) : null}
               {classification ? (
                 <div className="mt-5 space-y-4">
-                  <div className="rounded-md border border-slate-200 bg-slate-50 p-4">
-                    <p className="text-sm font-medium text-slate-500">
-                      Category
-                    </p>
-                    <p className="mt-2 text-sm font-semibold text-slate-950">
-                      {classification.category_level_1} /{" "}
-                      {classification.category_level_2}
-                      {classification.category_level_3
-                        ? ` / ${classification.category_level_3}`
-                        : ""}
-                    </p>
-                  </div>
                   <div className="grid gap-3 sm:grid-cols-2">
-                    <div className="rounded-md border border-slate-200 bg-slate-50 p-4">
-                      <p className="text-sm font-medium text-slate-500">
-                        Confidence
-                      </p>
-                      <p className="mt-2 text-sm font-semibold text-slate-950">
-                        {(classification.confidence_score * 100).toFixed(0)}%
-                      </p>
-                    </div>
+                    {[
+                      ["Category level 1", "category_level_1"],
+                      ["Category level 2", "category_level_2"],
+                      ["Confidence score", "confidence_score"],
+                    ].map(([label, key]) => (
+                      <label key={key} className="block">
+                        <span className="text-sm font-medium text-slate-500">
+                          {label}
+                        </span>
+                        <input
+                          value={reviewForm[key as keyof ReviewForm]}
+                          onChange={(event) =>
+                            setReviewForm((currentForm) => ({
+                              ...currentForm,
+                              [key]: event.target.value,
+                            }))
+                          }
+                          className="mt-2 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-950 shadow-sm outline-none transition focus:border-slate-500"
+                        />
+                      </label>
+                    ))}
                     <div className="rounded-md border border-slate-200 bg-slate-50 p-4">
                       <p className="text-sm font-medium text-slate-500">
                         Human review
@@ -546,12 +781,20 @@ export default function DocumentDetail({ documentId }: DocumentDetailProps) {
                     </div>
                   </div>
                   <div className="rounded-md border border-slate-200 bg-slate-50 p-4">
-                    <p className="text-sm font-medium text-slate-500">
+                    <label className="block text-sm font-medium text-slate-500">
                       Rationale
-                    </p>
-                    <p className="mt-2 text-sm leading-6 text-slate-800">
-                      {classification.rationale}
-                    </p>
+                      <textarea
+                        value={reviewForm.rationale}
+                        onChange={(event) =>
+                          setReviewForm((currentForm) => ({
+                            ...currentForm,
+                            rationale: event.target.value,
+                          }))
+                        }
+                        rows={4}
+                        className="mt-2 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm leading-6 text-slate-950 shadow-sm outline-none transition focus:border-slate-500"
+                      />
+                    </label>
                   </div>
                   <div className="rounded-md border border-slate-200 bg-slate-50 p-4">
                     <p className="text-sm font-medium text-slate-500">
@@ -562,6 +805,29 @@ export default function DocumentDetail({ documentId }: DocumentDetailProps) {
                         ? classification.alternative_categories.join(", ")
                         : "None"}
                     </p>
+                  </div>
+                  {reviewError ? (
+                    <p className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700">
+                      {reviewError}
+                    </p>
+                  ) : null}
+                  {reviewSuccess ? (
+                    <p className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-700">
+                      {reviewSuccess}
+                    </p>
+                  ) : null}
+                  <div className="flex justify-end">
+                    <button
+                      type="button"
+                      onClick={saveReview}
+                      disabled={isSavingReview}
+                      className="inline-flex items-center justify-center gap-2 rounded-md bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-500 disabled:shadow-none"
+                    >
+                      {isSavingReview ? (
+                        <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
+                      ) : null}
+                      {isSavingReview ? "Saving..." : "Save Review"}
+                    </button>
                   </div>
                 </div>
               ) : (

@@ -145,6 +145,10 @@ function normalizeOptionalNumber(value: unknown): number | null {
   return Number.isNaN(numericValue) ? null : numericValue;
 }
 
+function getReviewBadgeLabel(classification: ClassificationRow | null) {
+  return classification?.reviewed_by_user ? "Human reviewed" : "AI generated";
+}
+
 export default function DocumentDetail({ documentId }: DocumentDetailProps) {
   const [document, setDocument] = useState<DocumentRow | null>(null);
   const [extractedFields, setExtractedFields] =
@@ -441,6 +445,15 @@ export default function DocumentDetail({ documentId }: DocumentDetailProps) {
     setIsSavingReview(false);
   }
 
+  const isTextExtracted = [
+    "text_extracted",
+    "fields_extracted",
+    "classified",
+  ].includes(document?.status ?? "");
+  const areFieldsExtracted = Boolean(extractedFields);
+  const isDocumentClassified = Boolean(classification);
+  const reviewBadgeLabel = getReviewBadgeLabel(classification);
+
   return (
     <>
       <div className="mb-8">
@@ -530,41 +543,41 @@ export default function DocumentDetail({ documentId }: DocumentDetailProps) {
           </div>
 
           <div className="space-y-6">
-            <section className="rounded-lg border border-amber-200 bg-amber-50 p-6 shadow-sm">
-              <h2 className="text-sm font-semibold uppercase tracking-wide text-amber-900">
-                Temporary debug
-              </h2>
-              <p className="mt-3 text-sm font-medium text-amber-900">
-                Stored storage_path
-              </p>
-              <p className="mt-2 break-words rounded-md bg-white px-3 py-2 font-mono text-sm text-amber-950">
-                {document.storage_path ?? "null"}
-              </p>
-            </section>
-
             <section className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
               <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                 <div>
                   <h2 className="text-lg font-semibold text-slate-950">
-                    Extracted Fields (coming soon)
+                    Text Extraction
                   </h2>
                   <p className="mt-3 text-sm leading-6 text-slate-500">
-                    For now, this step extracts raw PDF text and saves it to the
-                    document row. Structured fields will come later.
+                    Extract raw PDF text and save it to the document record.
                   </p>
                 </div>
                 <button
                   type="button"
                   onClick={extractText}
-                  disabled={document.file_type !== "PDF" || isExtracting}
+                  disabled={
+                    document.file_type !== "PDF" ||
+                    isExtracting ||
+                    isTextExtracted
+                  }
                   className="inline-flex items-center justify-center gap-2 rounded-md bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-500 disabled:shadow-none"
                 >
                   {isExtracting ? (
                     <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
                   ) : null}
-                  {isExtracting ? "Extracting..." : "Extract Text"}
+                  {isTextExtracted
+                    ? "Text extracted"
+                    : isExtracting
+                      ? "Extracting..."
+                      : "Extract Text"}
                 </button>
               </div>
+              {isTextExtracted ? (
+                <p className="mt-4 rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-700">
+                  Text extracted
+                </p>
+              ) : null}
               {document.file_type !== "PDF" ? (
                 <p className="mt-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-800">
                   Text extraction supports PDF files only for now.
@@ -589,11 +602,9 @@ export default function DocumentDetail({ documentId }: DocumentDetailProps) {
                     <h2 className="text-lg font-semibold text-slate-950">
                       Structured Procurement Fields
                     </h2>
-                    {classification ? (
+                    {extractedFields ? (
                       <span className="rounded-md bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-700">
-                        {classification.reviewed_by_user
-                          ? "Human reviewed"
-                          : "AI generated"}
+                        {reviewBadgeLabel}
                       </span>
                     ) : null}
                   </div>
@@ -605,15 +616,24 @@ export default function DocumentDetail({ documentId }: DocumentDetailProps) {
                 <button
                   type="button"
                   onClick={extractFields}
-                  disabled={isExtractingFields}
+                  disabled={isExtractingFields || areFieldsExtracted}
                   className="inline-flex items-center justify-center gap-2 rounded-md bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-500 disabled:shadow-none"
                 >
                   {isExtractingFields ? (
                     <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
                   ) : null}
-                  {isExtractingFields ? "Extracting fields..." : "Extract Fields"}
+                  {areFieldsExtracted
+                    ? "Fields extracted"
+                    : isExtractingFields
+                      ? "Extracting fields..."
+                      : "Extract Fields"}
                 </button>
               </div>
+              {areFieldsExtracted ? (
+                <p className="mt-4 rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-700">
+                  Fields extracted
+                </p>
+              ) : null}
               {fieldsError ? (
                 <p className="mt-4 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700">
                   {fieldsError}
@@ -626,7 +646,25 @@ export default function DocumentDetail({ documentId }: DocumentDetailProps) {
               ) : null}
               {extractedFields ? (
                 <>
-                  <div className="mt-5 grid gap-4 sm:grid-cols-2">
+                  <div className="mt-5 rounded-lg border border-slate-200 bg-slate-50 p-4">
+                    <label className="block">
+                      <span className="text-sm font-medium text-slate-500">
+                        Services description
+                      </span>
+                      <textarea
+                        value={reviewForm.services_description}
+                        onChange={(event) =>
+                          setReviewForm((currentForm) => ({
+                            ...currentForm,
+                            services_description: event.target.value,
+                          }))
+                        }
+                        rows={4}
+                        className="mt-2 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm leading-6 text-slate-950 shadow-sm outline-none transition focus:border-slate-500"
+                      />
+                    </label>
+                  </div>
+                  <div className="mt-4 grid gap-4 sm:grid-cols-2">
                     {[
                       ["Vendor", "vendor_name"],
                       ["Pricing model", "pricing_model"],
@@ -650,22 +688,6 @@ export default function DocumentDetail({ documentId }: DocumentDetailProps) {
                       </label>
                     ))}
                   </div>
-                  <label className="mt-4 block">
-                    <span className="text-sm font-medium text-slate-500">
-                      Services description
-                    </span>
-                    <textarea
-                      value={reviewForm.services_description}
-                      onChange={(event) =>
-                        setReviewForm((currentForm) => ({
-                          ...currentForm,
-                          services_description: event.target.value,
-                        }))
-                      }
-                      rows={4}
-                      className="mt-2 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm leading-6 text-slate-950 shadow-sm outline-none transition focus:border-slate-500"
-                    />
-                  </label>
                   <dl className="mt-5 grid gap-3 sm:grid-cols-2">
                     {[
                       ["Deliverables", formatList(extractedFields.deliverables)],
@@ -715,9 +737,7 @@ export default function DocumentDetail({ documentId }: DocumentDetailProps) {
                     </h2>
                     {classification ? (
                       <span className="rounded-md bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-700">
-                        {classification.reviewed_by_user
-                          ? "Human reviewed"
-                          : "AI generated"}
+                        {reviewBadgeLabel}
                       </span>
                     ) : null}
                   </div>
@@ -728,15 +748,24 @@ export default function DocumentDetail({ documentId }: DocumentDetailProps) {
                 <button
                   type="button"
                   onClick={classifyDocument}
-                  disabled={isClassifying}
+                  disabled={isClassifying || isDocumentClassified}
                   className="inline-flex items-center justify-center gap-2 rounded-md bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-500 disabled:shadow-none"
                 >
                   {isClassifying ? (
                     <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
                   ) : null}
-                  {isClassifying ? "Classifying..." : "Classify Document"}
+                  {isDocumentClassified
+                    ? "Document classified"
+                    : isClassifying
+                      ? "Classifying..."
+                      : "Classify Document"}
                 </button>
               </div>
+              {isDocumentClassified ? (
+                <p className="mt-4 rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-700">
+                  Document classified
+                </p>
+              ) : null}
               {classificationError ? (
                 <p className="mt-4 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700">
                   {classificationError}
@@ -749,6 +778,20 @@ export default function DocumentDetail({ documentId }: DocumentDetailProps) {
               ) : null}
               {classification ? (
                 <div className="mt-5 space-y-4">
+                  <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+                    <p className="text-sm font-medium text-slate-500">
+                      Category hierarchy
+                    </p>
+                    <p className="mt-2 text-lg font-semibold text-slate-950">
+                      {classification.category_level_1}
+                    </p>
+                    <p className="mt-1 text-sm font-medium text-slate-700">
+                      {classification.category_level_2}
+                      {classification.category_level_3
+                        ? ` / ${classification.category_level_3}`
+                        : ""}
+                    </p>
+                  </div>
                   <div className="grid gap-3 sm:grid-cols-2">
                     {[
                       ["Category level 1", "category_level_1"],
@@ -773,10 +816,15 @@ export default function DocumentDetail({ documentId }: DocumentDetailProps) {
                     ))}
                     <div className="rounded-md border border-slate-200 bg-slate-50 p-4">
                       <p className="text-sm font-medium text-slate-500">
-                        Human review
+                        Confidence
                       </p>
-                      <p className="mt-2 text-sm font-semibold text-slate-950">
-                        {classification.needs_human_review ? "Needed" : "Not needed"}
+                      <p className="mt-2 text-2xl font-semibold text-slate-950">
+                        {(classification.confidence_score * 100).toFixed(0)}%
+                      </p>
+                      <p className="mt-1 text-xs font-medium text-slate-500">
+                        {classification.needs_human_review
+                          ? "Human review recommended"
+                          : "High confidence"}
                       </p>
                     </div>
                   </div>
@@ -795,16 +843,28 @@ export default function DocumentDetail({ documentId }: DocumentDetailProps) {
                         className="mt-2 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm leading-6 text-slate-950 shadow-sm outline-none transition focus:border-slate-500"
                       />
                     </label>
+                    <p className="mt-3 text-xs leading-5 text-slate-500">
+                      {classification.rationale}
+                    </p>
                   </div>
                   <div className="rounded-md border border-slate-200 bg-slate-50 p-4">
                     <p className="text-sm font-medium text-slate-500">
                       Alternatives
                     </p>
-                    <p className="mt-2 text-sm leading-6 text-slate-800">
-                      {classification.alternative_categories.length > 0
-                        ? classification.alternative_categories.join(", ")
-                        : "None"}
-                    </p>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {classification.alternative_categories.length > 0 ? (
+                        classification.alternative_categories.map((category) => (
+                          <span
+                            key={category}
+                            className="rounded-md bg-white px-2.5 py-1 text-xs font-medium text-slate-700 ring-1 ring-slate-200"
+                          >
+                            {category}
+                          </span>
+                        ))
+                      ) : (
+                        <span className="text-sm text-slate-500">None</span>
+                      )}
+                    </div>
                   </div>
                   {reviewError ? (
                     <p className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700">
